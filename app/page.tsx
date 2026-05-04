@@ -212,6 +212,8 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [source, setSource] = useState<Article["source"]>("yozm");
   const [memo, setMemo] = useState("");
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<Article | null>(null);
 
   useEffect(() => {
     const loadedTried = safeParse<string[]>(localStorage.getItem(TOOL_KEY), []);
@@ -293,6 +295,30 @@ export default function Home() {
     setArticles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const startEditArticle = (idx: number) => {
+    setEditingIdx(idx);
+    setEditDraft({ ...articles[idx] });
+  };
+
+  const cancelEditArticle = () => {
+    setEditingIdx(null);
+    setEditDraft(null);
+  };
+
+  const saveEditArticle = () => {
+    if (!editDraft || editingIdx === null) return;
+    if (!editDraft.title.trim() || !editDraft.url.trim()) return;
+    setArticles((prev) =>
+      prev.map((a, i) =>
+        i === editingIdx
+          ? { ...editDraft, title: editDraft.title.trim(), url: editDraft.url.trim(), memo: editDraft.memo.trim() }
+          : a,
+      ),
+    );
+    setEditingIdx(null);
+    setEditDraft(null);
+  };
+
   const saveYoutubeLink = (toolName: string) => {
     const draft = (youtubeDrafts[toolName] || "").trim();
     if (!draft) return;
@@ -348,7 +374,7 @@ export default function Home() {
           <span className="h-2 w-2 rounded-full bg-blue-600" /> Personal Knowledge Base
         </div>
         <h1 className="text-3xl font-bold leading-tight tracking-tight md:text-5xl">
-          AI 툴 학습/활용 가이드
+          AI 학습/활용 가이드
         </h1>
         <p className="mt-4 max-w-[520px] text-[16px] leading-7 text-slate-500">
           아이디어 구체화, UI 제안, 콘텐츠 소스 제작까지. 단계별 도구와 활용 팁,
@@ -412,23 +438,66 @@ export default function Home() {
                     </div>
 
                     <div className="mt-auto pt-4">
-                      <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (youtubeLink) {
-                            window.open(youtubeLink, "_blank", "noopener,noreferrer");
-                            return;
-                          }
-                          setOpenYoutubeEditor((prev) =>
-                            prev === tool.name ? null : tool.name,
-                          );
-                        }}
-                        className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600"
-                      >
-                        유튜브 강의보기
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (youtubeLink && openYoutubeEditor !== tool.name) {
+                              window.open(youtubeLink, "_blank", "noopener,noreferrer");
+                              return;
+                            }
+                            setOpenYoutubeEditor((prev) =>
+                              prev === tool.name ? null : tool.name,
+                            );
+                          }}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600"
+                        >
+                          유튜브 강의보기
+                        </button>
+                        {youtubeLink && openYoutubeEditor !== tool.name && (
+                          <button
+                            type="button"
+                            onClick={() => setOpenYoutubeEditor(tool.name)}
+                            className="rounded-md p-1 text-slate-400"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                            </svg>
+                          </button>
+                        )}
                       </div>
+
+                      {openYoutubeEditor === tool.name && (
+                        <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                          <input
+                            value={youtubeDrafts[tool.name] ?? ""}
+                            onChange={(e) =>
+                              setYoutubeDrafts((prev) => ({
+                                ...prev,
+                                [tool.name]: e.target.value,
+                              }))
+                            }
+                            placeholder="https://www.youtube.com/..."
+                            className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-blue-500"
+                          />
+                          <div className="mt-2 flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setOpenYoutubeEditor(null)}
+                              className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-500"
+                            >
+                              취소
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => saveYoutubeLink(tool.name)}
+                              className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white"
+                            >
+                              저장
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1">
@@ -461,62 +530,6 @@ export default function Home() {
                         </button>
                       </div>
                     </div>
-
-                    {openYoutubeEditor === tool.name && (
-                      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                        <input
-                          value={youtubeDrafts[tool.name] ?? ""}
-                          onChange={(e) =>
-                            setYoutubeDrafts((prev) => ({
-                              ...prev,
-                              [tool.name]: e.target.value,
-                            }))
-                          }
-                          placeholder="https://www.youtube.com/..."
-                          className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-blue-500"
-                        />
-                        <div className="mt-2 flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setOpenYoutubeEditor(null)}
-                            className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-500"
-                          >
-                            취소
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => saveYoutubeLink(tool.name)}
-                            className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white"
-                          >
-                            저장
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {youtubeLink && (
-                      <div className="mt-2">
-                        <p className="truncate text-[11px] text-slate-400">
-                          저장된 링크: {youtubeLink}
-                        </p>
-                        <div className="mt-1 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setOpenYoutubeEditor(tool.name)}
-                            className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-blue-200 hover:text-blue-600"
-                          >
-                            수정
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteYoutubeLink(tool.name)}
-                            className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-red-200 hover:text-red-600"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </article>
                 );
               })}
@@ -600,34 +613,105 @@ export default function Home() {
             ) : (
               [...articles].reverse().map((article, idx) => {
                 const realIdx = articles.length - 1 - idx;
+                const isEditing = editingIdx === realIdx;
                 return (
                   <article
                     key={`${article.title}-${article.date}`}
-                    className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4"
+                    className="rounded-xl border border-slate-200 bg-white p-4"
                   >
-                    <span className="mt-0.5 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">
-                      {sourceLabel[article.source]}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <a
-                        href={article.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block truncate text-sm font-semibold hover:text-blue-600"
-                      >
-                        {article.title}
-                      </a>
-                      {article.memo && (
-                        <p className="mt-1 text-xs leading-5 text-slate-500">{article.memo}</p>
-                      )}
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">
+                        {sourceLabel[article.source]}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <a
+                          href={article.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-sm font-semibold hover:text-blue-600"
+                        >
+                          {article.title}
+                        </a>
+                        {article.memo && (
+                          <p className="mt-1 text-xs leading-5 text-slate-500">{article.memo}</p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => startEditArticle(realIdx)}
+                            className="rounded-md p-1.5 text-slate-400 transition"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                            </svg>
+                          </button>
+                        )}
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => removeArticle(realIdx)}
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18"/>
+                              <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removeArticle(realIdx)}
-                      className="rounded-md px-2 py-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                    >
-                      ✕
-                    </button>
+
+                    {isEditing && editDraft && (
+                      <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <input
+                            value={editDraft.title}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditDraft((d: Article | null) => d ? { ...d, title: e.target.value } : d)}
+                            placeholder="아티클 제목"
+                            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          />
+                          <input
+                            value={editDraft.url}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditDraft((d: Article | null) => d ? { ...d, url: e.target.value } : d)}
+                            placeholder="https://..."
+                            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          />
+                          <select
+                            value={editDraft.source}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditDraft((d: Article | null) => d ? { ...d, source: e.target.value as Article["source"] } : d)}
+                            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          >
+                            <option value="yozm">요즘IT</option>
+                            <option value="brunch">브런치</option>
+                            <option value="etc">기타</option>
+                          </select>
+                          <input
+                            value={editDraft.memo}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditDraft((d: Article | null) => d ? { ...d, memo: e.target.value } : d)}
+                            placeholder="한 줄 메모"
+                            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={cancelEditArticle}
+                            className="rounded-md border border-slate-200 px-4 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+                          >
+                            취소
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveEditArticle}
+                            className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </article>
                 );
               })
