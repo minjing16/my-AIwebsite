@@ -26,6 +26,12 @@ type Article = {
 
 type DesignBlog = { site: string; url: string };
 
+type YoutubeLesson = {
+  id: string;
+  title: string;
+  url: string;
+};
+
 const stages: Stage[] = [
   {
     id: "stage-1",
@@ -149,6 +155,12 @@ const stages: Stage[] = [
         desc: "스타일 완성도가 높은 비주얼과 일러스트 생성에 유리합니다.",
         tip: "스타일 키워드와 구도를 고정해 시리즈 자산으로 제작해보세요.",
       },
+      {
+        name: "나노바나나",
+        badge: "제한무료",
+        desc: "Google Gemini 기반 AI 이미지 생성·편집 툴로 캐릭터 일관성이 뛰어납니다.",
+        tip: "같은 캐릭터를 다양한 포즈와 배경으로 연출할 때 특히 강합니다. 자연어로 편집 지시를 내리면 바로 반영돼요.",
+      },
     ],
   },
 ];
@@ -189,7 +201,7 @@ const designBlogs: DesignBlog[] = [
 const TOOL_KEY = "tried_tools";
 const RATING_KEY = "tool_ratings";
 const ARTICLE_KEY = "saved_articles";
-const YOUTUBE_KEY = "tool_youtube_links";
+const YOUTUBE_KEY = "tool_youtube_lessons_v2";
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -200,13 +212,31 @@ function safeParse<T>(raw: string | null, fallback: T): T {
   }
 }
 
+function getYoutubeThumbnail(url: string): string | null {
+  try {
+    const u = new URL(url);
+    let videoId: string | null = null;
+    if (u.hostname.includes("youtu.be")) {
+      videoId = u.pathname.slice(1).split("?")[0];
+    } else if (u.hostname.includes("youtube.com")) {
+      videoId = u.searchParams.get("v");
+    }
+    if (!videoId) return null;
+    return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
   const [tried, setTried] = useState<string[]>([]);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [articles, setArticles] = useState<Article[]>([]);
-  const [youtubeLinks, setYoutubeLinks] = useState<Record<string, string>>({});
-  const [youtubeDrafts, setYoutubeDrafts] = useState<Record<string, string>>({});
-  const [openYoutubeEditor, setOpenYoutubeEditor] = useState<string | null>(null);
+  const [youtubeLessons, setYoutubeLessons] = useState<Record<string, YoutubeLesson[]>>({});
+  const [youtubeModal, setYoutubeModal] = useState<string | null>(null);
+  const [lessonDraft, setLessonDraft] = useState<{ title: string; url: string }>({ title: "", url: "" });
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [editLessonDraft, setEditLessonDraft] = useState<{ title: string; url: string }>({ title: "", url: "" });
   const [openForm, setOpenForm] = useState(false);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
@@ -222,15 +252,14 @@ export default function Home() {
       {},
     );
     const loadedArticles = safeParse<Article[]>(localStorage.getItem(ARTICLE_KEY), []);
-    const loadedYoutubeLinks = safeParse<Record<string, string>>(
+    const loadedYoutubeLessons = safeParse<Record<string, YoutubeLesson[]>>(
       localStorage.getItem(YOUTUBE_KEY),
       {},
     );
     setTried(Array.isArray(loadedTried) ? loadedTried : []);
     setRatings(loadedRatings ?? {});
     setArticles(Array.isArray(loadedArticles) ? loadedArticles : []);
-    setYoutubeLinks(loadedYoutubeLinks ?? {});
-    setYoutubeDrafts(loadedYoutubeLinks ?? {});
+    setYoutubeLessons(loadedYoutubeLessons ?? {});
   }, []);
 
   useEffect(() => {
@@ -246,8 +275,8 @@ export default function Home() {
   }, [articles]);
 
   useEffect(() => {
-    localStorage.setItem(YOUTUBE_KEY, JSON.stringify(youtubeLinks));
-  }, [youtubeLinks]);
+    localStorage.setItem(YOUTUBE_KEY, JSON.stringify(youtubeLessons));
+  }, [youtubeLessons]);
 
   const totalTools = useMemo(
     () => stages.reduce((acc, stage) => acc + stage.tools.length, 0),
@@ -319,21 +348,44 @@ export default function Home() {
     setEditDraft(null);
   };
 
-  const saveYoutubeLink = (toolName: string) => {
-    const draft = (youtubeDrafts[toolName] || "").trim();
-    if (!draft) return;
-    setYoutubeLinks((prev) => ({ ...prev, [toolName]: draft }));
-    setOpenYoutubeEditor(null);
+  const addLesson = (toolName: string) => {
+    if (!lessonDraft.title.trim() || !lessonDraft.url.trim()) return;
+    const newLesson: YoutubeLesson = {
+      id: Date.now().toString(),
+      title: lessonDraft.title.trim(),
+      url: lessonDraft.url.trim(),
+    };
+    setYoutubeLessons((prev) => ({
+      ...prev,
+      [toolName]: [...(prev[toolName] ?? []), newLesson],
+    }));
+    setLessonDraft({ title: "", url: "" });
   };
 
-  const deleteYoutubeLink = (toolName: string) => {
-    setYoutubeLinks((prev) => {
-      const next = { ...prev };
-      delete next[toolName];
-      return next;
-    });
-    setYoutubeDrafts((prev) => ({ ...prev, [toolName]: "" }));
-    setOpenYoutubeEditor(null);
+  const deleteLesson = (toolName: string, lessonId: string) => {
+    setYoutubeLessons((prev) => ({
+      ...prev,
+      [toolName]: (prev[toolName] ?? []).filter((l) => l.id !== lessonId),
+    }));
+  };
+
+  const startEditLesson = (lesson: YoutubeLesson) => {
+    setEditingLessonId(lesson.id);
+    setEditLessonDraft({ title: lesson.title, url: lesson.url });
+  };
+
+  const saveEditLesson = (toolName: string) => {
+    if (!editingLessonId || !editLessonDraft.title.trim() || !editLessonDraft.url.trim()) return;
+    setYoutubeLessons((prev) => ({
+      ...prev,
+      [toolName]: (prev[toolName] ?? []).map((l) =>
+        l.id === editingLessonId
+          ? { ...l, title: editLessonDraft.title.trim(), url: editLessonDraft.url.trim() }
+          : l,
+      ),
+    }));
+    setEditingLessonId(null);
+    setEditLessonDraft({ title: "", url: "" });
   };
 
   return (
@@ -409,7 +461,7 @@ export default function Home() {
               {stage.tools.map((tool) => {
                 const isTried = triedSet.has(tool.name);
                 const rating = ratings[tool.name] ?? 0;
-                const youtubeLink = youtubeLinks[tool.name] || "";
+                const lessonCount = (youtubeLessons[tool.name] ?? []).length;
                 return (
                   <article
                     key={tool.name}
@@ -441,63 +493,15 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (youtubeLink && openYoutubeEditor !== tool.name) {
-                              window.open(youtubeLink, "_blank", "noopener,noreferrer");
-                              return;
-                            }
-                            setOpenYoutubeEditor((prev) =>
-                              prev === tool.name ? null : tool.name,
-                            );
-                          }}
-                          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600"
+                          onClick={() => { setYoutubeModal(tool.name); setLessonDraft({ title: "", url: "" }); setEditingLessonId(null); }}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-600"
                         >
                           유튜브 강의보기
+                          {lessonCount > 0 && (
+                            <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold text-white">{lessonCount}</span>
+                          )}
                         </button>
-                        {youtubeLink && openYoutubeEditor !== tool.name && (
-                          <button
-                            type="button"
-                            onClick={() => setOpenYoutubeEditor(tool.name)}
-                            className="rounded-md p-1 text-slate-400"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-                            </svg>
-                          </button>
-                        )}
                       </div>
-
-                      {openYoutubeEditor === tool.name && (
-                        <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2">
-                          <input
-                            value={youtubeDrafts[tool.name] ?? ""}
-                            onChange={(e) =>
-                              setYoutubeDrafts((prev) => ({
-                                ...prev,
-                                [tool.name]: e.target.value,
-                              }))
-                            }
-                            placeholder="https://www.youtube.com/..."
-                            className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-blue-500"
-                          />
-                          <div className="mt-2 flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setOpenYoutubeEditor(null)}
-                              className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-500"
-                            >
-                              취소
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => saveYoutubeLink(tool.name)}
-                              className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white"
-                            >
-                              저장
-                            </button>
-                          </div>
-                        </div>
-                      )}
 
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1">
@@ -651,7 +655,7 @@ export default function Home() {
                         {!isEditing && (
                           <button
                             type="button"
-                            onClick={() => removeArticle(realIdx)}
+                            onClick={() => { if (window.confirm("아티클을 삭제하시겠습니까?")) removeArticle(realIdx); }}
                             className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -746,6 +750,120 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {/* 유튜브 강의 모달 */}
+      {youtubeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setYoutubeModal(null); }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-medium text-slate-400">유튜브 강의</p>
+                <h3 className="text-[15px] font-bold text-slate-900">{youtubeModal}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setYoutubeModal(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* 강의 목록 */}
+            <div className="max-h-72 overflow-y-auto px-5 py-3">
+              {(youtubeLessons[youtubeModal] ?? []).length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-400">아직 등록된 강의가 없어요.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {(youtubeLessons[youtubeModal] ?? []).map((lesson) => (
+                    <li key={lesson.id} className="rounded-lg border border-slate-100 bg-slate-50">
+                      {editingLessonId === lesson.id ? (
+                        <div className="p-3 space-y-2">
+                          <input
+                            value={editLessonDraft.title}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditLessonDraft((d) => ({ ...d, title: e.target.value }))}
+                            placeholder="강의 제목"
+                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          />
+                          <input
+                            value={editLessonDraft.url}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditLessonDraft((d) => ({ ...d, url: e.target.value }))}
+                            placeholder="https://www.youtube.com/..."
+                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => setEditingLessonId(null)} className="rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-100">취소</button>
+                            <button type="button" onClick={() => { if (youtubeModal) saveEditLesson(youtubeModal); }} className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700">저장</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          {getYoutubeThumbnail(lesson.url) && (
+                            <a href={lesson.url} target="_blank" rel="noreferrer" className="block">
+                              <img
+                                src={getYoutubeThumbnail(lesson.url)!}
+                                alt={lesson.title}
+                                className="w-full rounded-t-lg object-cover"
+                                style={{ aspectRatio: "16/9" }}
+                              />
+                            </a>
+                          )}
+                          <div className="flex items-center gap-2 px-3 py-2.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#FF0000" className="shrink-0"><path d="M19.59 12.688 8.474 6.156C7.775 5.745 7 6.26 7 7.08v13.84c0 .82.775 1.335 1.474.924l11.116-6.532a1.056 1.056 0 0 0 0-1.624Z"/></svg>
+                            <a href={lesson.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 hover:text-blue-600">
+                              {lesson.title}
+                            </a>
+                            <div className="flex shrink-0 gap-1">
+                              <button type="button" onClick={() => startEditLesson(lesson)} className="rounded p-1 text-slate-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                              </button>
+                              <button type="button" onClick={() => { if (youtubeModal) deleteLesson(youtubeModal, lesson.id); }} className="rounded p-1 text-slate-400 hover:text-red-500">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* 강의 추가 폼 */}
+            <div className="border-t border-slate-100 px-5 py-4 space-y-2">
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">강의 추가</p>
+              <input
+                value={lessonDraft.title}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLessonDraft((d) => ({ ...d, title: e.target.value }))}
+                placeholder="강의 제목"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+              <input
+                value={lessonDraft.url}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLessonDraft((d) => ({ ...d, url: e.target.value }))}
+                placeholder="https://www.youtube.com/..."
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { if (youtubeModal) addLesson(youtubeModal); }}
+                  className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  추가
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-slate-200 px-5 py-8 md:px-10">
         <div className="mx-auto flex max-w-[1100px] items-center justify-between text-sm text-slate-400">
