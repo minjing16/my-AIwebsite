@@ -244,6 +244,13 @@ export default function Home() {
   const [memo, setMemo] = useState("");
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<Article | null>(null);
+  const [articleTab, setArticleTab] = useState<"saved" | "auto">("saved");
+  const [rssItems, setRssItems] = useState<{ title: string; url: string; date: string }[]>([]);
+  const [rssLoading, setRssLoading] = useState(false);
+  const [rssError, setRssError] = useState(false);
+  const [aiItems, setAiItems] = useState<{ title: string; url: string; source: string }[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(false);
 
   useEffect(() => {
     const loadedTried = safeParse<string[]>(localStorage.getItem(TOOL_KEY), []);
@@ -277,6 +284,23 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(YOUTUBE_KEY, JSON.stringify(youtubeLessons));
   }, [youtubeLessons]);
+
+  useEffect(() => {
+    if (articleTab !== "auto") return;
+    if (rssItems.length > 0) return;
+    setRssLoading(true);
+    setRssError(false);
+    fetch("/api/rss")
+      .then((r) => r.json())
+      .then((data) => {
+        setRssItems(data.items ?? []);
+        setRssLoading(false);
+      })
+      .catch(() => {
+        setRssError(true);
+        setRssLoading(false);
+      });
+  }, [articleTab]);
 
   const totalTools = useMemo(
     () => stages.reduce((acc, stage) => acc + stage.tools.length, 0),
@@ -549,17 +573,131 @@ export default function Home() {
                 {articles.length}개
               </span>
             </div>
+            {articleTab === "saved" && (
+              <button
+                type="button"
+                onClick={() => setOpenForm((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100"
+              >
+                <span aria-hidden>+</span> 아티클 추가
+              </button>
+            )}
+          </div>
+
+          {/* 탭 */}
+          <div className="mb-4 flex gap-2 border-b border-slate-200">
             <button
               type="button"
-              onClick={() => setOpenForm((v) => !v)}
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100"
+              onClick={() => setArticleTab("saved")}
+              className={`pb-2 text-sm font-semibold transition ${articleTab === "saved" ? "border-b-2 border-blue-600 text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
             >
-              <span aria-hidden>+</span>
-              아티클 추가
+              내 아티클
+            </button>
+            <button
+              type="button"
+              onClick={() => setArticleTab("auto")}
+              className={`flex items-center gap-1.5 pb-2 text-sm font-semibold transition ${articleTab === "auto" ? "border-b-2 border-blue-600 text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
+            >
+              AI 자동 추천
+              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-600">자동</span>
             </button>
           </div>
 
-          {openForm && (
+          {articleTab === "auto" && (
+            <div>
+              {/* Claude AI 추천 */}
+              <div className="mb-4 flex items-center justify-between">
+                <p className="text-xs text-slate-400">Claude AI가 브런치·요즘IT에서 최신 아티클을 검색해 추천해드려요.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (aiLoading) return;
+                    setAiLoading(true);
+                    setAiError(false);
+                    setAiItems([]);
+                    fetch("/api/recommend")
+                      .then((r) => r.json())
+                      .then((data) => { setAiItems(data.items ?? []); setAiLoading(false); })
+                      .catch(() => { setAiError(true); setAiLoading(false); });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  {aiLoading ? "검색 중..." : "✨ 추천받기"}
+                </button>
+              </div>
+
+              {/* Claude 추천 결과 */}
+              <div className="space-y-2">
+                {aiLoading && <div className="py-8 text-center text-sm text-slate-400">AI가 아티클을 검색하고 있어요... (10~20초 소요)</div>}
+                {aiError && <div className="py-6 text-center text-sm text-slate-400">추천을 불러오지 못했어요. 다시 시도해주세요.</div>}
+                {!aiLoading && !aiError && aiItems.length === 0 && rssItems.length === 0 && !rssLoading && (
+                  <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">
+                    추천받기 버튼을 눌러보세요!
+                  </div>
+                )}
+                {aiItems.map((item) => {
+                  const alreadySaved = articles.some((a) => a.url === item.url);
+                  const srcLabel = item.source === "brunch" ? "브런치" : item.source === "yozm" ? "요즘IT" : "기타";
+                  const srcColor = item.source === "brunch" ? "bg-yellow-50 text-yellow-600" : "bg-slate-100 text-slate-500";
+                  return (
+                    <div key={item.url} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${srcColor}`}>{srcLabel}</span>
+                      <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-semibold hover:text-blue-600">{item.title}</a>
+                      <button
+                        type="button"
+                        disabled={alreadySaved}
+                        onClick={() => {
+                          if (alreadySaved) return;
+                          setArticles((prev) => [...prev, {
+                            title: item.title, url: item.url,
+                            source: item.source === "brunch" ? "brunch" : item.source === "yozm" ? "yozm" : "etc",
+                            memo: "", date: new Date().toISOString(),
+                          }]);
+                        }}
+                        className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition ${alreadySaved ? "bg-slate-100 text-slate-400 cursor-default" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+                      >
+                        {alreadySaved ? "저장됨" : "저장"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 요즘IT RSS */}
+              {!rssError && rssItems.length > 0 && (
+                <div className="mt-6">
+                  <p className="mb-3 text-xs font-semibold text-slate-400">요즘IT 최신 아티클</p>
+                  <div className="space-y-2">
+                    {rssLoading && <div className="py-4 text-center text-sm text-slate-400">불러오는 중...</div>}
+                    {rssItems.map((item) => {
+                      const alreadySaved = articles.some((a) => a.url === item.url);
+                      return (
+                        <div key={item.url} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">요즘IT</span>
+                          <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-semibold hover:text-blue-600">{item.title}</a>
+                          <button
+                            type="button"
+                            disabled={alreadySaved}
+                            onClick={() => {
+                              if (alreadySaved) return;
+                              setArticles((prev) => [...prev, {
+                                title: item.title, url: item.url, source: "yozm", memo: "", date: new Date().toISOString(),
+                              }]);
+                            }}
+                            className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition ${alreadySaved ? "bg-slate-100 text-slate-400 cursor-default" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+                          >
+                            {alreadySaved ? "저장됨" : "저장"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {articleTab === "saved" && openForm && (
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-5">
               <div className="grid gap-3 md:grid-cols-2">
                 <input
@@ -609,6 +747,7 @@ export default function Home() {
             </div>
           )}
 
+          {articleTab === "saved" && (
           <div className="space-y-2">
             {articles.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
@@ -721,6 +860,7 @@ export default function Home() {
               })
             )}
           </div>
+          )}
         </section>
 
         <section
