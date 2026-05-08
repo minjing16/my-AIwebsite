@@ -573,13 +573,30 @@ export default function Home() {
                 {articles.length}개
               </span>
             </div>
-            {articleTab === "saved" && (
+            {articleTab === "saved" ? (
               <button
                 type="button"
                 onClick={() => setOpenForm((v) => !v)}
                 className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100"
               >
                 <span aria-hidden>+</span> 아티클 추가
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (aiLoading) return;
+                  setAiLoading(true);
+                  setAiError(false);
+                  setAiItems([]);
+                  fetch("/api/recommend")
+                    .then((r) => r.json())
+                    .then((data) => { setAiItems(data.items ?? []); setAiLoading(false); })
+                    .catch(() => { setAiError(true); setAiLoading(false); });
+                }}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100 disabled:opacity-50"
+              >
+                {aiLoading ? "검색 중..." : "✨ 추천받기"}
               </button>
             )}
           </div>
@@ -605,26 +622,7 @@ export default function Home() {
 
           {articleTab === "auto" && (
             <div>
-              {/* Claude AI 추천 */}
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-xs text-slate-400">Claude AI가 브런치·요즘IT에서 최신 아티클을 검색해 추천해드려요.</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (aiLoading) return;
-                    setAiLoading(true);
-                    setAiError(false);
-                    setAiItems([]);
-                    fetch("/api/recommend")
-                      .then((r) => r.json())
-                      .then((data) => { setAiItems(data.items ?? []); setAiLoading(false); })
-                      .catch(() => { setAiError(true); setAiLoading(false); });
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                >
-                  {aiLoading ? "검색 중..." : "✨ 추천받기"}
-                </button>
-              </div>
+              <p className="mb-4 text-xs text-slate-400">Claude AI가 브런치·요즘IT에서 최신 아티클을 검색해 추천해드려요.</p>
 
               {/* Claude 추천 결과 */}
               <div className="space-y-2">
